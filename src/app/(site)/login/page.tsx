@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useLang } from "@/components/LangProvider";
 export default function LoginPage() {
+  const { tr } = useLang();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -21,29 +23,29 @@ export default function LoginPage() {
     if (res.ok) {
       window.location.href = data.role === "admin" ? "/dash" : "/my";
     } else {
-      setErr(data.error || "بيانات الدخول غير صحيحة");
+      setErr(data.error || tr("بيانات الدخول غير صحيحة"));
     }
   }
 
   return (
     <div className="container" style={{ maxWidth: 440, padding: "70px 20px" }}>
       <div className="card pad">
-        <h1 className="section-title">الدخول إلى ملوكي</h1>
+        <h1 className="section-title">{tr("الدخول إلى ملوكي")}</h1>
         <p className="muted" style={{ marginTop: 4 }}>
-          الحسابات تُنشأ من إدارة الأكاديمية أو بعد الشراء.
+          {tr("الحسابات تُنشأ من إدارة الأكاديمية أو بعد الشراء.")}
         </p>
         <form onSubmit={submit} style={{ display: "grid", gap: 14, marginTop: 20 }}>
           <div>
-            <label className="label">البريد الإلكتروني</label>
+            <label className="label">{tr("البريد الإلكتروني")}</label>
             <input className="input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </div>
           <div>
-            <label className="label">كلمة المرور</label>
+            <label className="label">{tr("كلمة المرور")}</label>
             <input className="input" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
           </div>
           {err && <div style={{ color: "var(--danger)", fontSize: 14 }}>{err}</div>}
           <button className="btn btn-primary" disabled={busy} type="submit">
-            {busy ? "جارٍ الدخول…" : "دخول"}
+            {busy ? tr("جارٍ الدخول…") : tr("دخول")}
           </button>
         </form>
       </div>
