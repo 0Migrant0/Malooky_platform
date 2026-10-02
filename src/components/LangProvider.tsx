@@ -1,21 +1,25 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { t as tFn, dirFor, type Dict, type Lang } from "@/lib/i18n";
+import { usePathname } from "next/navigation";
+import { t as tFn, translate, pageTitle, dirFor, type Dict, type Lang, type UiCopyKey } from "@/lib/i18n";
 
 const LangCtx = createContext<{
   lang: Lang;
   t: Dict;
   dir: "rtl" | "ltr";
+  tr: (source: UiCopyKey) => string;
   setLanguage: (lang: Lang) => void;
 }>({
   lang: "ar",
   t: tFn("ar"),
   dir: "rtl",
+  tr: (source) => translate("ar", source),
   setLanguage: () => {},
 });
 
 export function LangProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || "/";
   const [lang, setLang] = useState<Lang>("ar");
 
   useEffect(() => {
@@ -35,10 +39,11 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = lang;
     document.documentElement.dir = dirFor(lang);
     document.documentElement.dataset.lang = lang;
-  }, [lang]);
+    document.title = pageTitle(lang, pathname);
+  }, [lang, pathname]);
 
   const value = useMemo(
-    () => ({ lang, t: tFn(lang), dir: dirFor(lang), setLanguage }),
+    () => ({ lang, t: tFn(lang), dir: dirFor(lang), tr: (source: UiCopyKey) => translate(lang, source), setLanguage }),
     [lang, setLanguage],
   );
 

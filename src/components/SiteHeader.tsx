@@ -9,7 +9,7 @@ import Image from "next/image";
 export default function SiteHeader() {
   const [liveMe, setLiveMe] = useState<{ email: string; role: string } | null>(null);
   const [menu, setMenu] = useState(false);
-  const { lang, setLanguage } = useLang();
+  const { lang, tr, setLanguage } = useLang();
   const me = liveMe;
 
   useEffect(() => {
@@ -19,15 +19,9 @@ export default function SiteHeader() {
       .catch(() => {});
   }, []);
 
-  const L = lang === "ar" ? {
-    home: "الرئيسية", courses: "الكورسات", vip: "دورة VIP", consult: "استشارة", donate: "تبرع",
-    login: "تسجيل الدخول", dash: "اللوحة", my: "كورساتي", logout: "خروج",
-  } : lang === "zh" ? {
-    home: "首页", courses: "课程", vip: "VIP 直播", consult: "咨询", donate: "支持我们",
-    login: "登录", dash: "管理面板", my: "我的课程", logout: "退出",
-  } : {
-    home: "Home", courses: "Courses", vip: "VIP", consult: "Consult", donate: "Donate",
-    login: "Sign in", dash: "Dashboard", my: "My courses", logout: "Sign out",
+  const L = {
+    home: tr("الرئيسية"), courses: tr("الكورسات"), vip: tr("دورة VIP"), consult: tr("استشارة"), donate: tr("تبرع"),
+    login: tr("تسجيل الدخول"), dash: tr("اللوحة"), my: tr("كورساتي"), logout: tr("خروج"),
   };
 
   async function logout() {
@@ -55,7 +49,7 @@ export default function SiteHeader() {
       style={{ position: "sticky", top: 0, zIndex: 50, background: "var(--surface)", borderBottom: "1px solid var(--border)" }}
     >
       <div className="container" style={{ display: "flex", alignItems: "center", gap: 10, height: 64 }}>
-        <Link href="/" className="brand-lockup" aria-label={lang === "zh" ? "马卢基 首页" : lang === "ar" ? "ملوكي — الرئيسية" : "Malooky home"}>
+        <Link href="/" className="brand-lockup" aria-label={`${tr("ملوكي")} — ${L.home}`}>
           <Image className="brand-logo" src="/malooky-logo.jpg" alt="" width={44} height={44} priority />
           <span className="brand-wordmark"><strong>{lang === "zh" ? "马卢基" : lang === "ar" ? "ملوكي" : "Malooky"}</strong></span>
         </Link>
@@ -64,7 +58,7 @@ export default function SiteHeader() {
         <select
           className="select language-select"
           style={{ width: 112, minWidth: 112, flex: "0 0 112px" }}
-          aria-label="Choose language / اختر اللغة / 选择语言"
+          aria-label={tr("اختر اللغة")}
           value={lang}
           onChange={(event) => switchLang(event.target.value as (typeof languages)[number]["code"])}
         >
@@ -83,7 +77,7 @@ export default function SiteHeader() {
         )}
         <button
           className="btn btn-ghost btn-sm nav-mobile-btn"
-          aria-label="menu"
+          aria-label={tr("القائمة")}
           onClick={() => setMenu((v) => !v)}
         >
           ☰

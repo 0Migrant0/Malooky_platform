@@ -291,7 +291,6 @@ const UI_COPY: Record<string, Record<Lang, string>> = {
   "الكورسات منشورة": { ar: "الكورسات منشورة", en: "Published courses", zh: "已发布课程" },
   "قاعدة البيانات غير مهيأة بعد — شغّل": { ar: "قاعدة البيانات غير مهيأة بعد — شغّل", en: "The database is not configured yet — run", zh: "数据库尚未配置 — 请运行" },
   "من لوحة Supabase ثم حدّث الصفحة.": { ar: "من لوحة Supabase ثم حدّث الصفحة.", en: "in the Supabase dashboard, then refresh this page.", zh: "在 Supabase 控制台中执行，然后刷新页面。" },
-  "الكورسات": { ar: "الكورسات", en: "Courses", zh: "课程" },
   "دورة VIP مباشرة مفعّلة الآن": { ar: "دورة VIP مباشرة مفعّلة الآن", en: "VIP live course is now active", zh: "VIP 直播课程现已开放" },
   "انضم للجلسة المباشرة مع الأستاذ — المقاعد محدودة.": { ar: "انضم للجلسة المباشرة مع الأستاذ — المقاعد محدودة.", en: "Join the live session with the instructor — limited seats.", zh: "加入导师直播课程 — 名额有限。" },
   "التفاصيل والانضمام": { ar: "التفاصيل والانضمام", en: "Details and enrollment", zh: "查看详情并加入" },
@@ -309,7 +308,6 @@ const UI_COPY: Record<string, Record<Lang, string>> = {
   "التعلم": { ar: "التعلم", en: "Learning", zh: "学习" },
   "كورسات متدرجة بمستويات مفتوحة بالتتابع — أكمل كل مستوى 100% لتفتح التالي.": { ar: "كورسات متدرجة بمستويات مفتوحة بالتتابع — أكمل كل مستوى 100% لتفتح التالي.", en: "Progressive courses with sequential levels — complete each level to 100% to unlock the next.", zh: "循序渐进的课程 — 完成当前阶段 100% 后即可解锁下一阶段。" },
   "احجز استشارة خاصة": { ar: "احجز استشارة خاصة", en: "Book a private consultation", zh: "预约私人咨询" },
-  "أرسل طلبك وسيتواصل معك الأستاذ لتحديد الموعد وطريقة الجلسة.": { ar: "أرسل طلبك وسيتواصل معك الأستاذ لتحديد الموعد وطريقة الجلسة.", en: "Send your request and the instructor will contact you to arrange a time and format.", zh: "提交申请后，导师将联系您安排时间和咨询方式。" },
   "أرسل طلبك وسيتواصل معك الأستاذ لتحديد الموعد وطريقة الجلسة.": { ar: "أرسل طلبك وسيتواصل معك الأستاذ لتحديد الموعد وطريقة الجلسة.", en: "Send your request and the instructor will contact you to arrange a time and format.", zh: "提交申请后，导师将联系您安排时间和咨询方式。" },
   "تم حفظ طلبك بنجاح — شكراً لك!": { ar: "تم حفظ طلبك بنجاح — شكراً لك!", en: "Your request was sent successfully — thank you!", zh: "申请已成功提交，感谢您！" },
   "إرسال طلب آخر": { ar: "إرسال طلب آخر", en: "Send another request", zh: "再次提交申请" },
@@ -388,7 +386,6 @@ const UI_COPY: Record<string, Record<Lang, string>> = {
   "حوّل المبلغ على الحساب الموضح، ثم ارفع صورة الإيصال وسنتواصل معك على واتساب لتفعيل الوصول.": { ar: "حوّل المبلغ على الحساب الموضح، ثم ارفع صورة الإيصال وسنتواصل معك على واتساب لتفعيل الوصول.", en: "Transfer the amount to the account shown, upload the receipt, and we will contact you on WhatsApp to activate access.", zh: "请将款项转入所示账户并上传收据，我们将通过 WhatsApp 联系您开通访问权限。" },
   "البريد": { ar: "البريد", en: "Email", zh: "邮箱" },
   "رقم الواتساب": { ar: "رقم الواتساب", en: "WhatsApp number", zh: "WhatsApp 号码" },
-  "جارٍ الإرسال…": { ar: "جارٍ الإرسال…", en: "Sending…", zh: "正在发送…" },
   "إرسال الطلب مع الإثبات": { ar: "إرسال الطلب مع الإثبات", en: "Submit request with proof", zh: "提交申请和凭证" },
   "🔒 فيديوهات مشفّرة — لا يمكن تحميلها": { ar: "🔒 فيديوهات مشفّرة — لا يمكن تحميلها", en: "🔒 Encrypted videos — downloads are disabled", zh: "🔒 视频已加密 — 无法下载" },
   "⭐ فيد باك شخصي": { ar: "⭐ فيد باك شخصي", en: "⭐ Personal feedback", zh: "⭐ 个性化反馈" },
@@ -398,8 +395,11 @@ const UI_COPY: Record<string, Record<Lang, string>> = {
   "حفظ": { ar: "حفظ", en: "Save", zh: "保存" },
 };
 
-export function translate(lang: Lang, source: string): string {
-  return UI_COPY[source]?.[lang] ?? source;
+export const uiCopy = UI_COPY satisfies Record<string, Record<Lang, string>>;
+export type UiCopyKey = keyof typeof uiCopy;
+
+export function translate(lang: Lang, source: UiCopyKey): string {
+  return uiCopy[source][lang];
 }
 
 /** Select authored content in the requested language, then English, then Arabic. */
@@ -413,6 +413,33 @@ export function localizedField(
       ? [fields.zh, fields.en, fields.ar]
       : [fields.en, fields.ar, fields.zh];
   return choices.find((value): value is string => Boolean(value?.trim())) ?? "";
+}
+
+export function localizedRecord<T extends object>(lang: Lang, record: T): T {
+  const translated = { ...record } as T & Record<string, unknown>;
+  for (const key of Object.keys(record) as Array<keyof T>) {
+    const name = String(key);
+    if (!name.endsWith("_ar")) continue;
+    const stem = name.slice(0, -3);
+    const arValue = (record as Record<string, unknown>)[name];
+    const enValue = (record as Record<string, unknown>)[`${stem}_en`];
+    const zhValue = (record as Record<string, unknown>)[`${stem}_zh`];
+    if ([arValue, enValue, zhValue].some((value) => typeof value === "string")) {
+      translated[stem] = localizedField(lang, {
+        ar: typeof arValue === "string" ? arValue : null,
+        en: typeof enValue === "string" ? enValue : null,
+        zh: typeof zhValue === "string" ? zhValue : null,
+      });
+    }
+  }
+  return translated;
+}
+
+export function formatDate(lang: Lang, date: Date): string {
+  return new Intl.DateTimeFormat(lang === "ar" ? "ar" : lang === "zh" ? "zh-CN" : "en", {
+    dateStyle: "full",
+    timeStyle: "short",
+  }).format(date);
 }
 
 export function pageTitle(lang: Lang, pathname: string): string {
