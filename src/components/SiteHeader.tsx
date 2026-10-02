@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "@/components/LangProvider";
 import { languages } from "@/lib/i18n";
 import Image from "next/image";
+import LocalizedCopy from "@/components/LocalizedCopy";
 
 export default function SiteHeader() {
   const [liveMe, setLiveMe] = useState<{ email: string; role: string } | null>(null);
@@ -51,7 +52,7 @@ export default function SiteHeader() {
       <div className="container" style={{ display: "flex", alignItems: "center", gap: 10, height: 64 }}>
         <Link href="/" className="brand-lockup" aria-label={`${tr("ملوكي")} — ${L.home}`}>
           <Image className="brand-logo" src="/malooky-logo.jpg" alt="" width={44} height={44} priority />
-          <span className="brand-wordmark"><strong>{lang === "zh" ? "马卢基" : lang === "ar" ? "ملوكي" : "Malooky"}</strong></span>
+          <span className="brand-wordmark"><strong><LocalizedCopy source="ملوكي" /></strong></span>
         </Link>
         <div className="nav-desktop" style={{ display: "flex", gap: 2 }}>{links}</div>
         <div style={{ flex: 1 }} />
