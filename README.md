@@ -84,7 +84,7 @@ npm run build
 
 ### أول حساب أدمن
 1. سجّل دخول عادي من `/login` بعد إنشاء مستخدم من Supabase → Authentication → Add User.
-2. في SQL Editor: `update profiles set role='admin' where email='you@example.com';`
+2. في SQL Editor: `update profiles set role='admin' where email='osama@mail.com';`
 
 ## 🎥 إعداد Bunny Stream (أمان الفيديو)
 
@@ -134,5 +134,6 @@ src/
 
 كل شيء في `src/lib/tokens.ts` + `globals.css` — عند وصول الهوية الفعلية (شعار/ألوان/خطوط)
 عدّل القيم هناك فقط وستنعكس على الموقع كله.
-#   M a l o o k y _ p l a t f o r m  
+#   M a l o o k y _ p l a t f o r m 
+ 
  
