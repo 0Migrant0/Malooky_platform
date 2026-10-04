@@ -67,7 +67,6 @@ const en: Dict = {
   loading: "Loading…",
 };
 
-
 const zh: Dict = {
   brand: "马卢基", tagline: "阿拉伯书法涂鸦学院", nav_home: "首页", nav_courses: "课程", nav_vip: "VIP 直播课",
   nav_consult: "咨询", nav_donate: "支持我们", login: "登录", logout: "退出", dash: "管理面板", my_courses: "我的课程",
