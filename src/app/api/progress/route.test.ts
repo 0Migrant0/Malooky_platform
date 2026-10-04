@@ -77,6 +77,42 @@ describe("POST /api/progress authorization", () => {
     expect(mocks.db.upserts).toHaveLength(1);
   });
 
+  it("returns sanitized server failure when a required progress read fails", async () => {
+    const secret = "database-password=hidden";
+    mocks.db = createFakeSupabase({
+      lessons: [{ id: "lesson-1", level_id: "level-1", is_free_preview: false }],
+      levels: [{ id: "level-1", course_id: "course-a", relation: "sequential", is_free: false, sort: 1 }],
+      courses: [{ id: "course-a", is_published: true }],
+      access: [{ user_id: "student-1", course_id: "course-a", level_id: null, source: "purchase" }],
+    }, { levels: { message: secret } });
+    const response = await post();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "حدث خطأ، حاول مرة أخرى" });
+  });
+
+  it("returns sanitized server failure when saving progress fails", async () => {
+    const secret = "database-password=hidden";
+    mocks.db = createFakeSupabase({
+      lessons: [{ id: "lesson-1", level_id: "level-1", is_free_preview: false }],
+      courses: [{ id: "course-a", is_published: true }],
+      levels: [{ id: "level-1", course_id: "course-a", relation: "sequential", is_free: false, sort: 1 }],
+      access: [{ user_id: "student-1", course_id: "course-a", level_id: null, source: "purchase" }],
+    }, { "progress.upsert": { message: secret } });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await post();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "حدث خطأ، حاول مرة أخرى" });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain(secret);
+  });
+
+  it("returns a validation response for malformed JSON", async () => {
+    const response = await POST(new Request("http://localhost/api/progress", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{",
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "lessonId مطلوب" });
+  });
+
   it("preserves enrolled sequential progression after the previous level is complete", async () => {
     mocks.db = createFakeSupabase({
       lessons: [

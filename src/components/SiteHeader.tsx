@@ -3,31 +3,54 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLang } from "@/components/LangProvider";
-import { languages } from "@/lib/i18n";
+import { languages, localizeApiError } from "@/lib/i18n";
+import { readApiResponse } from "@/lib/client-api";
 import Image from "next/image";
 import LocalizedCopy from "@/components/LocalizedCopy";
 
 export default function SiteHeader() {
   const [liveMe, setLiveMe] = useState<{ email: string; role: string } | null>(null);
+  const [sessionError, setSessionError] = useState(false);
   const [menu, setMenu] = useState(false);
   const { lang, tr, setLanguage } = useLang();
   const me = liveMe;
 
   useEffect(() => {
-    fetch("/api/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d?.user && setLiveMe(d.user))
-      .catch(() => {});
+    let alive = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/me");
+        const result = await readApiResponse(response, (data) => Object.hasOwn(data, "user"));
+        if (!alive) return;
+        if (!result.ok) {
+          setSessionError(true);
+          return;
+        }
+        const user = result.data.user;
+        if (user && typeof user === "object" && "email" in user && "role" in user) {
+          setLiveMe(user as { email: string; role: string });
+        }
+      } catch {
+        if (alive) setSessionError(true);
+      }
+    })();
+    return () => { alive = false; };
   }, []);
 
   const L = {
-    home: tr("الرئيسية"), courses: tr("الكورسات"), vip: tr("دورة VIP"), consult: tr("استشارة"), donate: tr("تبرع"),
+    home: tr("الرئيسية"), courses: tr("الكورسات"), consult: tr("دروس خاصة"), donate: tr("تبرع"),
     login: tr("تسجيل الدخول"), dash: tr("اللوحة"), my: tr("كورساتي"), logout: tr("خروج"),
   };
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/";
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      const result = await readApiResponse(response, (data) => data.ok === true);
+      if (result.ok) window.location.href = "/";
+      else setSessionError(true);
+    } catch {
+      setSessionError(true);
+    }
   }
 
   function switchLang(next: (typeof languages)[number]["code"]) {
@@ -38,7 +61,6 @@ export default function SiteHeader() {
     <>
       <Link className="btn btn-ghost btn-sm" href="/" onClick={() => setMenu(false)}>{L.home}</Link>
       <Link className="btn btn-ghost btn-sm" href="/courses" onClick={() => setMenu(false)}>{L.courses}</Link>
-      <Link className="btn btn-ghost btn-sm" href="/vip" onClick={() => setMenu(false)}>{L.vip}</Link>
       <Link className="btn btn-ghost btn-sm" href="/consult" onClick={() => setMenu(false)}>{L.consult}</Link>
       <Link className="btn btn-ghost btn-sm" href="/donate" onClick={() => setMenu(false)}>{L.donate}</Link>
     </>
@@ -76,6 +98,7 @@ export default function SiteHeader() {
         ) : (
           <Link className="btn btn-primary btn-sm" href="/login">{L.login}</Link>
         )}
+        {sessionError && <span role="alert" className="muted" style={{ fontSize: 12 }}>{localizeApiError(lang, undefined, "session")}</span>}
         <button
           className="btn btn-ghost btn-sm nav-mobile-btn"
           aria-label={tr("القائمة")}

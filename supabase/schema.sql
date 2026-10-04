@@ -32,6 +32,7 @@ create table if not exists courses (
   price_cents int,
   stripe_price_id text,
   is_free boolean not null default false,
+  is_free_preview boolean not null default false,
   created_at timestamptz not null default now()
 );
 

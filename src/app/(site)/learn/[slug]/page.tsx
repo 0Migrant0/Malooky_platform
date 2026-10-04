@@ -2,7 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { supabaseAdmin, getUserFromCookies } from "@/lib/supabase";
 import type { Access, Course, Lesson, Level, Progress } from "@/lib/types";
 import { lessonsOfLevel, levelUnlocked } from "@/lib/access";
-import LearnClient from "./LearnClient";
+import LocalizedLearnClient from "@/components/LocalizedLearnClient";
+import LocalizedLearnMessage from "@/components/LocalizedLearnMessage";
+import LocalizedPageFailure from "@/components/LocalizedPageFailure";
+import { loadPageData, requirePageQuery } from "@/lib/page-data";
+import { loadRequiredPageQueries } from "@/lib/server-page-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,26 +19,37 @@ export default async function LearnPage({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const me = await getUserFromCookies();
+  const session = await loadPageData("learning-session", () => getUserFromCookies({ throwOnError: true }));
+  if (!session.ok) return <LocalizedPageFailure reason={session.reason} />;
+  const me = session.data;
   if (!me) redirect("/login");
 
-  const db = supabaseAdmin();
-  const { data: course } = await db.from("courses").select("*").eq("slug", slug).maybeSingle();
-  if (!course || !(course as Course).is_published) notFound();
-  const c = course as Course;
+  const result = await loadPageData("learning", async () => {
+    const db = supabaseAdmin();
+    const courseRes = await db.from("courses").select("*").eq("slug", slug).maybeSingle();
+    requirePageQuery(courseRes);
+    const course = courseRes.data as Course | null;
+    if (!course || !course.is_published) return null;
 
-  const [levelsRes, lessonsRes, accessRes, progressRes] = await Promise.all([
-    db.from("levels").select("*").eq("course_id", c.id).order("sort"),
-    db.from("lessons").select("*").order("sort"),
-    db.from("access").select("course_id,level_id,source").eq("user_id", me.id),
-    db.from("progress").select("lesson_id,completed").eq("user_id", me.id),
-  ]);
-
-  const levels = (levelsRes.data || []) as Level[];
-  const allLessons = (lessonsRes.data || []) as Lesson[];
-  const lessons = allLessons.filter((l) => levels.some((lv) => lv.id === l.level_id));
-  const access = (accessRes.data || []) as Access[];
-  const progress = (progressRes.data || []) as Progress[];
+    const [levelsRes, lessonsRes, accessRes, progressRes] = await loadRequiredPageQueries(() => Promise.all([
+      db.from("levels").select("*").eq("course_id", course.id).order("sort"),
+      db.from("lessons").select("*").order("sort"),
+      db.from("access").select("course_id,level_id,source").eq("user_id", me.id),
+      db.from("progress").select("lesson_id,completed").eq("user_id", me.id),
+    ]));
+    const levels = (levelsRes.data || []) as Level[];
+    const allLessons = (lessonsRes.data || []) as Lesson[];
+    return {
+      course,
+      levels,
+      lessons: allLessons.filter((lesson) => levels.some((level) => level.id === lesson.level_id)),
+      access: (accessRes.data || []) as Access[],
+      progress: (progressRes.data || []) as Progress[],
+    };
+  });
+  if (!result.ok) return <LocalizedPageFailure reason={result.reason} />;
+  if (!result.data) notFound();
+  const { course: c, levels, lessons, access, progress } = result.data;
 
   // المستوى الابتدائي: من الرابط أو أول مستوى مفتوح
   let level = levels.find((lv) => lv.id === sp.level) || null;
@@ -46,28 +61,17 @@ export default async function LearnPage({
   const lesson = levelLessons.find((l) => l.id === sp.lesson) || levelLessons[0] || null;
 
   if (!level || !lesson) {
-    return (
-      <div className="container" style={{ padding: 60, textAlign: "center" }}>
-        <p className="muted">هذا الكورس لا يحتوي محتوى منشوراً بعد.</p>
-      </div>
-    );
+    return <LocalizedLearnMessage kind="empty" slug={slug} />;
   }
 
   const unlocked = levelUnlocked(levels, levels.indexOf(level), access, progress, lessons);
   if (!unlocked) {
-    return (
-      <div className="container" style={{ padding: 70, textAlign: "center" }}>
-        <div style={{ fontSize: 42 }}>🔒</div>
-        <h1 className="section-title" style={{ marginTop: 10 }}>هذا المستوى مقفل</h1>
-        <p className="muted">أكمل المستوى السابق 100% لفتحه — أو تواصل مع الأستاذ لمنحك استثناءً.</p>
-        <a className="btn btn-primary" style={{ marginTop: 16 }} href={`/learn/${slug}`}>رجوع</a>
-      </div>
-    );
+    return <LocalizedLearnMessage kind="locked" slug={slug} />;
   }
 
   return (
-    <LearnClient
-      courseTitle={c.title_ar}
+    <LocalizedLearnClient
+      course={c}
       slug={slug}
       levels={JSON.parse(JSON.stringify(levels))}
       lessons={JSON.parse(JSON.stringify(lessons))}

@@ -9,7 +9,6 @@
 export const brand = {
   nameAr: "ملوكي",
   nameEn: "Malooky",
-  domain: "malooky.com",
   taglineAr: "أكاديمية الكاليجرافيتي العربي",
   taglineEn: "Academy of Arabic Calligraffiti",
   /** يُدار أيضاً من إعدادات DASH (site_settings.whatsapp) */

@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { configuredSiteOrigin } from "@/lib/site-origin";
 import "./globals.css";
 
+const siteOrigin = configuredSiteOrigin();
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://malooky.com"),
+  ...(siteOrigin ? { metadataBase: new URL(siteOrigin) } : {}),
   title: {
     default: "ملوكي | أكاديمية الكاليجرافيتي العربي",
     template: "%s | ملوكي",

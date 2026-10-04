@@ -17,9 +17,6 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
-  env: {
-    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || "https://malooky.com",
-  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

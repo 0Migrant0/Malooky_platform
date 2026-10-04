@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, getUserFromCookies } from "@/lib/supabase";
 import { slugify } from "@/lib/ui";
 import { captureAdminAuditContext, writeAdminAuditLog } from "@/lib/admin-audit";
+import { apiErrorResponse, apiRoute, failedApiOperation, logApiError, unexpectedApiError } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -9,29 +10,40 @@ export const dynamic = "force-dynamic";
  * نقطة إجراءات الأدمن — كل طلب يتحقق من دور admin قبل التنفيذ.
  * (بديل عملي عن إنشاء عشرات ملفات API — نفس النمط، حماية موحدة.)
  */
-export async function POST(req: Request) {
-  const me = await getUserFromCookies().catch(() => null);
+async function postAdminAction(req: Request) {
+  const me = await getUserFromCookies({ throwOnError: true });
   if (!me || me.role !== "admin") {
-    return NextResponse.json({ error: "صلاحيات غير كافية" }, { status: 403 });
+    return apiErrorResponse(403, "صلاحيات غير كافية");
   }
 
-  const body = await req.json().catch(() => null);
-  const action = String(body?.action || "");
-  const db = supabaseAdmin();
-  const p = body?.payload ?? {};
-  if (!p || typeof p !== "object" || Array.isArray(p)) {
-    return NextResponse.json({ error: "بيانات الإجراء غير صالحة" }, { status: 400 });
+  let body: Record<string, unknown> | null;
+  try {
+    const parsed: unknown = await req.json();
+    body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return apiErrorResponse(400, "بيانات الإجراء غير صالحة");
   }
+  if (!body) return apiErrorResponse(400, "بيانات الإجراء غير صالحة");
+  const action = String(body.action || "");
+  const payload: unknown = body.payload ?? {};
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return apiErrorResponse(400, "بيانات الإجراء غير صالحة");
+  }
+  const p = payload as Record<string, any>;
+  if (action === "setVip") return apiErrorResponse(400, "إجراء غير معروف");
+  if (action === "upsertCourse" && p.kind === "vip") return apiErrorResponse(400, "نوع غير معروف");
 
   try {
+    const db = supabaseAdmin();
     const auditContext = await captureAdminAuditContext(db, action, p);
     const respond = async (result: Record<string, unknown>) => {
       if (auditContext) {
         try {
           await writeAdminAuditLog(db, me, action, auditContext, result, p);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "تعذّر تسجيل هذا التغيير";
-          return NextResponse.json({ ...result, auditWarning: message });
+          if (action !== "approveOrder") return failedApiOperation("/api/admin/action", error);
+          logApiError("/api/admin/action", error);
+          return NextResponse.json({ ...result, auditWarning: true });
         }
       }
       return NextResponse.json(result);
@@ -42,19 +54,19 @@ export async function POST(req: Request) {
       case "createUser": {
         const email = String(p.email || "").toLowerCase().trim();
         const password = String(p.password || "").slice(0, 72);
-        if (!email || password.length < 6) return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
+        if (!email || password.length < 6) return apiErrorResponse(400, "بيانات غير صالحة");
         const { data, error } = await db.auth.admin.createUser({
           email,
           password,
           email_confirm: true,
           user_metadata: { full_name: p.fullName || "" },
         });
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: data.user?.id });
       }
       case "setRole": {
         const { error } = await db.from("profiles").update({ role: p.role === "admin" ? "admin" : "student" }).eq("id", p.userId);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.userId });
       }
       case "grant": {
@@ -68,7 +80,7 @@ export async function POST(req: Request) {
           },
           { onConflict: "user_id,course_id,level_id" },
         );
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.userId });
       }
       case "revoke": {
@@ -76,7 +88,7 @@ export async function POST(req: Request) {
         if (p.courseId) q = q.eq("course_id", p.courseId);
         if (p.levelId) q = q.eq("level_id", p.levelId);
         const { error } = await q;
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.userId });
       }
 
@@ -84,9 +96,10 @@ export async function POST(req: Request) {
       case "upsertCourse": {
         let existingPublished = false;
         if (p.id) {
-          const { data: existing, error: existingError } = await db.from("courses").select("is_published").eq("id", p.id).maybeSingle();
-          if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
-          if (!existing) return NextResponse.json({ error: "الكورس غير موجود" }, { status: 404 });
+          const { data: existing, error: existingError } = await db.from("courses").select("is_published,kind").eq("id", p.id).maybeSingle();
+          if (existingError) return failedApiOperation("/api/admin/action", existingError);
+          if (!existing) return apiErrorResponse(404, "الكورس غير موجود");
+          if (existing.kind === "vip") return apiErrorResponse(400, "نوع غير معروف");
           existingPublished = Boolean(existing.is_published);
         }
         const row = {
@@ -106,36 +119,37 @@ export async function POST(req: Request) {
           is_free: Boolean(p.is_free),
         };
         const { data, error } = await db.from("courses").upsert(row).select().maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, course: data });
       }
       case "setCoursePublished": {
         if (typeof p.is_published !== "boolean" || !p.id) {
-          return NextResponse.json({ error: "معرّف الكورس وحالة النشر مطلوبان" }, { status: 400 });
+          return apiErrorResponse(400, "معرّف الكورس وحالة النشر مطلوبان");
         }
-        const { data: course, error: readError } = await db.from("courses").select("id,title_ar,slug,price_cents,is_free,is_published").eq("id", p.id).maybeSingle();
-        if (readError) return NextResponse.json({ error: readError.message }, { status: 400 });
-        if (!course) return NextResponse.json({ error: "الكورس غير موجود" }, { status: 404 });
+        const { data: course, error: readError } = await db.from("courses").select("id,title_ar,slug,price_cents,is_free,is_published,kind").eq("id", p.id).maybeSingle();
+        if (readError) return failedApiOperation("/api/admin/action", readError);
+        if (!course) return apiErrorResponse(404, "الكورس غير موجود");
+        if (p.is_published && course.kind === "vip") return apiErrorResponse(400, "نوع غير معروف");
         if (p.is_published) {
           if (!course.title_ar?.trim() || !course.slug?.trim()) {
-            return NextResponse.json({ error: "أضف عنواناً ورابطاً صالحين قبل نشر الكورس" }, { status: 400 });
+            return apiErrorResponse(400, "أضف عنواناً ورابطاً صالحين قبل نشر الكورس");
           }
           if (!course.is_free && (!Number.isInteger(course.price_cents) || course.price_cents <= 0)) {
-            return NextResponse.json({ error: "أضف سعراً صالحاً أو اجعل الكورس مجانياً قبل النشر" }, { status: 400 });
+            return apiErrorResponse(400, "أضف سعراً صالحاً أو اجعل الكورس مجانياً قبل النشر");
           }
           const { data: courseLevels, error: levelError } = await db.from("levels").select("id").eq("course_id", p.id);
-          if (levelError) return NextResponse.json({ error: levelError.message }, { status: 400 });
-          if (!courseLevels?.length) return NextResponse.json({ error: "أضف مستوى واحداً على الأقل قبل نشر الكورس" }, { status: 400 });
+          if (levelError) return failedApiOperation("/api/admin/action", levelError);
+          if (!courseLevels?.length) return apiErrorResponse(400, "أضف مستوى واحداً على الأقل قبل نشر الكورس");
           const { count: lessonCount, error: lessonError } = await db.from("lessons").select("id", { count: "exact", head: true }).in("level_id", courseLevels.map((level) => level.id));
-          if (lessonError) return NextResponse.json({ error: lessonError.message }, { status: 400 });
-          if (!lessonCount) return NextResponse.json({ error: "أضف درساً واحداً على الأقل قبل نشر الكورس" }, { status: 400 });
+          if (lessonError) return failedApiOperation("/api/admin/action", lessonError);
+          if (!lessonCount) return apiErrorResponse(400, "أضف درساً واحداً على الأقل قبل نشر الكورس");
         }
         const { data, error } = await db.from("courses").update({ is_published: p.is_published }).eq("id", p.id).select().maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, course: data, id: p.id });
       }
       case "deleteCourse": {
-        return NextResponse.json({ error: "حذف الكورس نهائياً متوقف. استخدم إلغاء النشر لحفظه واستعادته لاحقاً." }, { status: 409 });
+        return apiErrorResponse(409, "حذف الكورس نهائياً متوقف. استخدم إلغاء النشر لحفظه واستعادته لاحقاً.");
       }
       case "upsertLevel": {
         const row = {
@@ -151,12 +165,12 @@ export async function POST(req: Request) {
           is_free: Boolean(p.is_free),
         };
         const { data, error } = await db.from("levels").upsert(row).select().maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, level: data });
       }
       case "deleteLevel": {
         const { error } = await db.from("levels").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
       case "upsertLesson": {
@@ -175,51 +189,58 @@ export async function POST(req: Request) {
           langs: Array.isArray(p.langs) ? p.langs : null,
         };
         const { data, error } = await db.from("lessons").upsert(row).select().maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, lesson: data });
       }
       case "deleteLesson": {
         const { error } = await db.from("lessons").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
 
       /* ---------- الطلبات اليدوية ---------- */
       case "approveOrder": {
         // موافقة: أنشئ المستخدم إن لم يوجد + فعّل الوصول
-        const { data: order } = await db.from("manual_orders").select("*").eq("id", p.id).maybeSingle();
+        const { data: order, error: orderError } = await db.from("manual_orders").select("*").eq("id", p.id).maybeSingle();
+        if (orderError) return failedApiOperation("/api/admin/action", orderError);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const o = order as any;
-        if (!o) return NextResponse.json({ error: "الطلب غير موجود" }, { status: 404 });
+        if (!o) return apiErrorResponse(404, "الطلب غير موجود");
         let userId = o.user_id as string | null;
         if (!userId) {
-          const tempPassword = crypto.randomUUID().slice(0, 10) + "Aa1";
-          const { data: created, error: cErr } = await db.auth.admin.createUser({
-            email: o.email,
-            password: tempPassword,
-            email_confirm: true,
-            user_metadata: { full_name: o.full_name || "" },
-          });
-          if (cErr) return NextResponse.json({ error: cErr.message }, { status: 400 });
-          userId = created.user?.id || null;
-          if (userId) {
-            await db.from("access").upsert(
-              { user_id: userId, course_id: o.course_id, level_id: o.level_id, source: "manual" },
-              { onConflict: "user_id,course_id,level_id" },
-            );
+          const email = String(o.email || "").trim().toLowerCase();
+          const { data: profile, error: profileError } = await db.from("profiles").select("id").eq("email", email).maybeSingle();
+          if (profileError) return failedApiOperation("/api/admin/action", profileError);
+          userId = (profile?.id as string | undefined) || null;
+          if (!userId) {
+            const tempPassword = crypto.randomUUID().slice(0, 10) + "Aa1";
+            const { data: created, error: createError } = await db.auth.admin.createUser({
+              email,
+              password: tempPassword,
+              email_confirm: true,
+              user_metadata: { full_name: o.full_name || "" },
+            });
+            if (createError) return failedApiOperation("/api/admin/action", createError);
+            userId = created.user?.id || null;
+            if (!userId) return failedApiOperation("/api/admin/action", new Error("User creation returned no id"));
           }
-        } else {
-          await db.from("access").upsert(
-            { user_id: userId, course_id: o.course_id, level_id: o.level_id, source: "manual" },
-            { onConflict: "user_id,course_id,level_id" },
-          );
+
+          // Link first: failed access writes can then be retried without creating another account.
+          const { error: linkError } = await db.from("manual_orders").update({ user_id: userId }).eq("id", p.id);
+          if (linkError) return failedApiOperation("/api/admin/action", linkError);
         }
-        await db.from("manual_orders").update({ status: "approved", note: p.note || null }).eq("id", p.id);
+        const { error: accessError } = await db.from("access").upsert(
+          { user_id: userId, course_id: o.course_id, level_id: o.level_id, source: "manual" },
+          { onConflict: "user_id,course_id,level_id" },
+        );
+        if (accessError) return failedApiOperation("/api/admin/action", accessError);
+        const { error: updateError } = await db.from("manual_orders").update({ status: "approved", note: p.note || null }).eq("id", p.id);
+        if (updateError) return failedApiOperation("/api/admin/action", updateError);
         return respond({ ok: true, userId, id: p.id });
       }
       case "rejectOrder": {
         const { error } = await db.from("manual_orders").update({ status: "rejected", note: p.note || null }).eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
 
@@ -238,12 +259,12 @@ export async function POST(req: Request) {
           sort: Number(p.sort || 0),
         };
         const { data, error } = await db.from("packages").upsert(row).select().maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: data?.id });
       }
       case "deletePackage": {
         const { error } = await db.from("packages").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
       case "upsertCoupon": {
@@ -253,19 +274,19 @@ export async function POST(req: Request) {
           active: Boolean(p.active),
           expires_at: p.expires_at || null,
         });
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, code: String(p.code || "").toUpperCase() });
       }
       case "deleteCoupon": {
         const { error } = await db.from("coupons").delete().eq("code", p.code);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, code: p.code });
       }
 
       /* ---------- طرق الدفع ---------- */
       case "togglePaymentMethod": {
         const { error } = await db.from("payment_methods").update({ enabled: Boolean(p.enabled) }).eq("key", p.key);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, key: p.key });
       }
       case "savePaymentInstructions": {
@@ -273,7 +294,7 @@ export async function POST(req: Request) {
           .from("payment_methods")
           .update({ instructions_ar: p.instructions_ar || null, instructions_en: p.instructions_en || null })
           .eq("key", p.key);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, key: p.key });
       }
 
@@ -288,12 +309,12 @@ export async function POST(req: Request) {
           body_en: p.body_en || null,
           approved: Boolean(p.approved),
         }).select("id").maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: data?.id });
       }
       case "deleteTestimonial": {
         const { error } = await db.from("testimonials").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
       case "upsertTopStudent": {
@@ -305,12 +326,12 @@ export async function POST(req: Request) {
           reason_en: p.reason_en || null,
           sort: Number(p.sort || 0),
         }).select("id").maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: data?.id });
       }
       case "deleteTopStudent": {
         const { error } = await db.from("top_students").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
       case "upsertWork": {
@@ -322,12 +343,12 @@ export async function POST(req: Request) {
           caption_en: p.caption_en || null,
           approved: Boolean(p.approved),
         }).select("id").maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: data?.id });
       }
       case "deleteWork": {
         const { error } = await db.from("student_works").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
       case "upsertFaq": {
@@ -340,19 +361,19 @@ export async function POST(req: Request) {
           video_lesson_id: p.video_lesson_id || null,
           sort: Number(p.sort || 0),
         }).select("id").maybeSingle();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: data?.id });
       }
       case "deleteFaq": {
         const { error } = await db.from("faqs").delete().eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
 
       /* ---------- الاستشارات و VIP والتبرعات ---------- */
       case "setConsultStatus": {
         const { error } = await db.from("consult_requests").update({ status: String(p.status || "contacted") }).eq("id", p.id);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: p.id });
       }
       case "setVip": {
@@ -366,7 +387,7 @@ export async function POST(req: Request) {
           description_ar: p.description_ar || null,
           description_en: p.description_en || null,
         });
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, id: 1 });
       }
 
@@ -377,15 +398,16 @@ export async function POST(req: Request) {
           { lesson_id: p.lessonId, lang: p.lang === "en" ? "en" : "ar", bunny_video_id: String(p.bunnyVideoId || ""), duration_seconds: p.durationSeconds || null },
           { onConflict: "lesson_id,lang" },
         );
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error) return failedApiOperation("/api/admin/action", error);
         return respond({ ok: true, lessonId: p.lessonId });
       }
 
       default:
-        return NextResponse.json({ error: `إجراء غير معروف: ${action}` }, { status: 400 });
+        return apiErrorResponse(400, "إجراء غير معروف");
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return unexpectedApiError("/api/admin/action", e);
   }
 }
+
+export const POST = apiRoute("/api/admin/action", postAdminAction);

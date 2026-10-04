@@ -74,6 +74,10 @@ export interface Lesson {
   langs: VideoLang[] | null;
 }
 
+export type PublicCourse = Pick<Course, "id" | "slug" | "title_ar" | "title_en" | "subtitle_ar" | "subtitle_en" | "price_cents" | "is_free">;
+export type PublicCourseLevel = Pick<Level, "id" | "course_id" | "title_ar" | "title_en" | "description_ar" | "description_en" | "sort" | "is_free" | "price_cents">;
+export type PublicCourseLesson = Pick<Lesson, "id" | "level_id" | "subsection" | "title_ar" | "title_en" | "is_free_preview">;
+
 export interface Progress {
   user_id?: string;
   lesson_id: string;

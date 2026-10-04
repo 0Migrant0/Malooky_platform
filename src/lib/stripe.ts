@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { configuredSiteOrigin } from "@/lib/site-origin";
 
 let cached: Stripe | null = null;
 
@@ -14,8 +15,8 @@ export function stripeEnabled(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET);
 }
 
-export function siteUrl(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL || "https://malooky.com";
+export function siteUrl(): string | null {
+  return configuredSiteOrigin();
 }
 
 export function currency(): string {

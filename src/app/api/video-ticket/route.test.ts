@@ -80,6 +80,29 @@ describe("POST /api/video-ticket authorization", () => {
     expect(mocks.buildPlayback).not.toHaveBeenCalled();
   });
 
+  it("returns a sanitized error when the entitlement reads fail", async () => {
+    const secret = "database-password=hidden";
+    mocks.db = createFakeSupabase({
+      lessons: [{ id: "lesson-1", level_id: "level-1", is_free_preview: false, langs: ["ar"] }],
+      courses: [{ id: "course-a", is_published: true }],
+      levels: [{ id: "level-1", course_id: "course-a", relation: "sequential", is_free: false, sort: 1 }],
+    }, { access: { message: secret } });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await post();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "تعذّر تشغيل الفيديو، حاول مرة أخرى." });
+    expect(mocks.buildPlayback).not.toHaveBeenCalled();
+    expect(JSON.stringify(logger.mock.calls)).not.toContain(secret);
+  });
+
+  it("returns a validation response for malformed JSON", async () => {
+    const response = await POST(new Request("http://localhost/api/video-ticket", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{",
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "lessonId مطلوب" });
+  });
+
   it("issues playback after an enrolled student completes the previous level", async () => {
     mocks.db = createFakeSupabase({
       lessons: [
