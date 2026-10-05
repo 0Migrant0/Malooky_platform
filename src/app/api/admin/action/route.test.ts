@@ -14,6 +14,7 @@ vi.mock("@/lib/supabase", () => ({
     auth: { admin: { createUser: mocks.createUser } },
   }),
   getUserFromCookies: () => Promise.resolve(mocks.user),
+  resolveUserSession: () => Promise.resolve({ user: mocks.user, refreshedSession: null }),
 }));
 vi.mock("@/lib/admin-audit", () => ({
   captureAdminAuditContext: mocks.captureAudit,
@@ -179,5 +180,27 @@ describe("POST /api/admin/action approveOrder", () => {
     expect(mocks.db?.writes.some(({ table, operation }) => table === "access" && operation === "upsert")).toBe(true);
     expect(mocks.db?.writes.some(({ table, operation, value }) => table === "manual_orders" && operation === "update" && (value as Record<string, unknown>).status === "approved")).toBe(true);
     expect(JSON.stringify(logger.mock.calls)).not.toContain(secret);
+  });
+});
+
+describe("POST /api/admin/action audit persistence", () => {
+  it("returns success with auditWarning when the audit log cannot be written for a non-approveOrder action", async () => {
+    mocks.db = createFakeSupabase({ coupons: [] });
+    mocks.captureAudit.mockReset().mockResolvedValue({
+      table: "coupons", entityType: "coupon", filters: [["code", "TEST"]], before: [],
+    });
+    mocks.writeAudit.mockReset().mockRejectedValue(new Error("audit unavailable"));
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(new Request("http://localhost/api/admin/action", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "upsertCoupon", payload: { code: "TEST", percent_off: 20, active: true } }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, code: "TEST", auditWarning: true });
+    expect(mocks.db?.upserts.some(({ table }) => table === "coupons")).toBe(true);
+    expect(logger).toHaveBeenCalledWith("[api-error]", { route: "/api/admin/action", classification: "unexpected" });
   });
 });

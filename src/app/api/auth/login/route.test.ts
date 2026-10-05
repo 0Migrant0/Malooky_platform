@@ -5,7 +5,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase", () => ({
-  supabaseAdmin: () => ({ auth: { signInWithPassword: mocks.signIn } }),
+  // The data client intentionally exposes no auth: sign-in runs on the dedicated auth
+  // client, because a session stored on the data client makes REST calls fail under RLS.
+  supabaseAdmin: () => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: "admin" }, error: null }) }) }) }),
+  }),
+  supabaseAdminAuth: () => ({ auth: { signInWithPassword: mocks.signIn } }),
 }));
 vi.mock("@/lib/ratelimit", () => ({ rateLimit: () => ({ ok: true }), clientIp: () => "127.0.0.1" }));
 
@@ -42,5 +47,24 @@ describe("POST /api/auth/login errors", () => {
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "تعذّر تسجيل الدخول، حاول مرة أخرى." });
     expect(JSON.stringify(logger.mock.calls)).not.toContain(secret);
+  });
+});
+
+describe("POST /api/auth/login success", () => {
+  it("signs in through the dedicated auth client and reports the admin role", async () => {
+    mocks.signIn.mockResolvedValue({
+      data: { session: { access_token: "access-token", refresh_token: "refresh-token" }, user: { id: "admin-1" } },
+      error: null,
+    });
+
+    const response = await POST(request(JSON.stringify({ email: "admin@example.test", password: "password123" })));
+    const body = await response.json();
+    const cookies = response.headers.getSetCookie().join(" | ");
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ ok: true, role: "admin" });
+    expect(mocks.signIn).toHaveBeenCalledWith({ email: "admin@example.test", password: "password123" });
+    expect(cookies).toContain("sb-access-token=access-token");
+    expect(cookies).toContain("sb-refresh-token=refresh-token");
   });
 });

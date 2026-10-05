@@ -1,5 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import type { NextResponse } from "next/server";
+import { resolveUserSession, type ResolvedSession } from "@/lib/supabase";
 
 export function setAuthSessionCookies(response: NextResponse, session: Pick<Session, "access_token" | "refresh_token">): void {
   const options = {
@@ -12,4 +13,20 @@ export function setAuthSessionCookies(response: NextResponse, session: Pick<Sess
 
   response.cookies.set("sb-access-token", session.access_token, options);
   if (session.refresh_token) response.cookies.set("sb-refresh-token", session.refresh_token, options);
+}
+
+export type SessionHandler = (req: Request, session: ResolvedSession) => Promise<NextResponse>;
+
+/**
+ * يحلّ جلسة الطلب مرة واحدة (مجدّداً توكن الوصول المنتهي عند توفر refresh token)،
+ * يمرّرها إلى المسار، ثم يحفظ التوكنات الجديدة في كوكي الاستجابة.
+ * بذلك تظل إجراءات الأدمن تعمل بعد انتهاء صلاحية التوكن بدل إرجاع 403.
+ */
+export function withSession(handler: SessionHandler): (req: Request) => Promise<NextResponse> {
+  return async (req: Request) => {
+    const session = await resolveUserSession({ throwOnError: true, refresh: true });
+    const response = await handler(req, session);
+    if (session.refreshedSession) setAuthSessionCookies(response, session.refreshedSession);
+    return response;
+  };
 }

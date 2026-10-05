@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin, getUserFromCookies } from "@/lib/supabase";
+import { supabaseAdmin, type ResolvedSession } from "@/lib/supabase";
 import { slugify } from "@/lib/ui";
 import { captureAdminAuditContext, writeAdminAuditLog } from "@/lib/admin-audit";
+import { withSession } from "@/lib/auth-session";
 import { apiErrorResponse, apiRoute, failedApiOperation, logApiError, unexpectedApiError } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +11,8 @@ export const dynamic = "force-dynamic";
  * نقطة إجراءات الأدمن — كل طلب يتحقق من دور admin قبل التنفيذ.
  * (بديل عملي عن إنشاء عشرات ملفات API — نفس النمط، حماية موحدة.)
  */
-async function postAdminAction(req: Request) {
-  const me = await getUserFromCookies({ throwOnError: true });
+async function postAdminAction(req: Request, session: ResolvedSession) {
+  const me = session.user;
   if (!me || me.role !== "admin") {
     return apiErrorResponse(403, "صلاحيات غير كافية");
   }
@@ -41,7 +42,7 @@ async function postAdminAction(req: Request) {
         try {
           await writeAdminAuditLog(db, me, action, auditContext, result, p);
         } catch (error) {
-          if (action !== "approveOrder") return failedApiOperation("/api/admin/action", error);
+          // التغيير نجح فعلاً في القاعدة: لا يُفشل الإجراء بسبب تعذّر تسجيله، بل يُبلّغ بتحذير.
           logApiError("/api/admin/action", error);
           return NextResponse.json({ ...result, auditWarning: true });
         }
@@ -410,4 +411,4 @@ async function postAdminAction(req: Request) {
   }
 }
 
-export const POST = apiRoute("/api/admin/action", postAdminAction);
+export const POST = apiRoute("/api/admin/action", withSession(postAdminAction));

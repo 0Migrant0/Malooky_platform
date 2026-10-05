@@ -12,7 +12,7 @@ export default async function DashPage() {
   const session = await loadPageData("dashboard-session", () => getUserFromCookies({ throwOnError: true }));
   if (!session.ok) return <LocalizedPageFailure reason={session.reason} />;
   const me = session.data;
-  if (!me) redirect("/login");
+  if (!me) redirect("/api/auth/refresh?next=/dash");
   if (me.role !== "admin") redirect("/my");
 
   const result = await loadPageData("dashboard", async () => {
