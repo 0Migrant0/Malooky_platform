@@ -252,6 +252,40 @@ a {
   outline-offset: 1px;
 }
 
+/* Popup widgets (dropdown lists, native pickers) follow the site's light theme
+   even when the OS is in dark mode — otherwise the list renders dark-on-dark
+   against the light page. */
+:root {
+  color-scheme: light;
+}
+
+/* Reset the platform-native select chrome and draw our own RTL/LTR-aware
+   chevron so selects render identically everywhere. */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b635c' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+}
+
+[dir="rtl"] .select {
+  background-position: left 12px center;
+  padding-left: 36px;
+  padding-right: 14px;
+}
+
+[dir="ltr"] .select {
+  background-position: right 12px center;
+  padding-right: 36px;
+  padding-left: 14px;
+}
+
+.select option {
+  background: #ffffff;
+  color: #403b3c;
+}
+
 .label {
   display: block;
   font-size: 13px;
