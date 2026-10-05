@@ -183,6 +183,79 @@ describe("POST /api/admin/action approveOrder", () => {
   });
 });
 
+describe("POST /api/admin/action constraint errors", () => {
+  function requestAction(action: string, payload: Record<string, unknown>) {
+    return POST(new Request("http://localhost/api/admin/action", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action, payload }),
+    }));
+  }
+
+  beforeEach(() => {
+    mocks.captureAudit.mockReset().mockResolvedValue(null);
+    mocks.writeAudit.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("returns 409 with a clear message when the course slug already exists", async () => {
+    mocks.db = createFakeSupabase({ courses: [] }, {
+      "courses.upsert": { code: "23505", message: 'duplicate key value violates unique constraint "courses_slug_key"' },
+    });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await requestAction("upsertCourse", { title_ar: "taken title", price_cents: 1000 });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "قيمة مكررة — هذا الرابط أو المعرّف مستخدم مسبقاً. اختر قيمة أخرى." });
+    expect(logger).toHaveBeenCalledWith("[api-error]", { route: "/api/admin/action", classification: "conflict" });
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 with a clear message when createUser hits an existing email", async () => {
+    mocks.db = createFakeSupabase({});
+    mocks.createUser.mockReset().mockResolvedValue({
+      data: { user: null },
+      error: { code: "email_exists", message: "User already registered", status: 422 },
+    });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await requestAction("createUser", { email: "taken@example.test", password: "password123" });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "البريد الإلكتروني مستخدم مسبقاً." });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("User already registered");
+  });
+
+  it("returns 400 with a clear message when a referenced row is missing (foreign key)", async () => {
+    mocks.db = createFakeSupabase({ levels: [] }, {
+      "levels.upsert": {
+        code: "23503",
+        message: 'insert or update on table "levels" violates foreign key constraint "levels_course_id_fkey"',
+      },
+    });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await requestAction("upsertLevel", { courseId: "missing-course", title_ar: "level" });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "أحد السجلات المرتبطة غير موجود. حدّث الصفحة ثم أعد المحاولة." });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("levels_course_id_fkey");
+  });
+
+  it("still returns a generic 500 for non-constraint database failures", async () => {
+    mocks.db = createFakeSupabase({ courses: [] }, {
+      "courses.upsert": { message: "connection to server failed" },
+    });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await requestAction("upsertCourse", { title_ar: "any", price_cents: 1000 });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "حدث خطأ، حاول مرة أخرى" });
+    expect(logger).toHaveBeenCalledWith("[api-error]", { route: "/api/admin/action", classification: "unexpected" });
+  });
+});
+
 describe("POST /api/admin/action audit persistence", () => {
   it("returns success with auditWarning when the audit log cannot be written for a non-approveOrder action", async () => {
     mocks.db = createFakeSupabase({ coupons: [] });

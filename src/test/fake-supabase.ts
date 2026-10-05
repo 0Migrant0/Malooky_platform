@@ -1,6 +1,6 @@
 type Row = Record<string, unknown>;
 type Filter = { column: string; value: unknown; values?: unknown[] };
-export type FakeSupabaseError = { message: string };
+export type FakeSupabaseError = { message: string; code?: string };
 
 export interface FakeSupabase {
   from(table: string): FakeQuery;

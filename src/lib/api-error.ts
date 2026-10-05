@@ -27,6 +27,13 @@ export function classifyApiErrorStatus(status: number): ApiErrorClassification {
 /** رسالة عامة آمنة عند غياب إعدادات Supabase على الخادم (مطابقة لنسخة صفحات الفشل). */
 const CONFIGURATION_ERROR_MESSAGE = "الخدمة غير مهيأة حالياً، حاول مرة أخرى لاحقاً.";
 
+/* رسائل واضحة (4xx) لأخطاء قيود القاعدة بدل رسالة عامة 500 — قراءة منفصلة عن نص الخطأ. */
+const DUPLICATE_VALUE_MESSAGE = "قيمة مكررة — هذا الرابط أو المعرّف مستخدم مسبقاً. اختر قيمة أخرى.";
+const MISSING_RELATED_RECORD_MESSAGE = "أحد السجلات المرتبطة غير موجود. حدّث الصفحة ثم أعد المحاولة.";
+const MISSING_REQUIRED_FIELD_MESSAGE = "حقل مطلوب مفقود. أكمل جميع الحقول المطلوبة.";
+const INVALID_FIELD_VALUE_MESSAGE = "قيمة غير صالحة في أحد الحقول. راجع البيانات ثم أعد المحاولة.";
+const EMAIL_ALREADY_TAKEN_MESSAGE = "البريد الإلكتروني مستخدم مسبقاً.";
+
 const SAFE_API_MESSAGES = new Set([
   "صلاحيات غير كافية", "بيانات الإجراء غير صالحة", "بيانات غير صالحة", "Invalid request",
   "معرّف الكورس وحالة النشر مطلوبان", "أضف عنواناً ورابطاً صالحين قبل نشر الكورس",
@@ -43,6 +50,8 @@ const SAFE_API_MESSAGES = new Set([
   "تعذّر حفظ التقدم، حاول مرة أخرى.",
   "بيانات التسجيل غير صالحة", "تعذّر إنشاء الحساب. تحقق من البيانات وحاول مجدداً.",
   CONFIGURATION_ERROR_MESSAGE,
+  DUPLICATE_VALUE_MESSAGE, MISSING_RELATED_RECORD_MESSAGE, MISSING_REQUIRED_FIELD_MESSAGE,
+  INVALID_FIELD_VALUE_MESSAGE, EMAIL_ALREADY_TAKEN_MESSAGE,
 ]);
 
 function isKnownPublicMessage(message: string): boolean {
@@ -72,6 +81,49 @@ export function logApiError(route: string, _error: unknown, status = 500): void 
   });
 }
 
+type ConstraintMapping = { status: number; message: string };
+
+/** SQLSTATE أخطاء القيود (PostgrestError.code) → ردّ 4xx واضح برسالة آمنة. */
+const SQLSTATE_CONSTRAINTS: Record<string, ConstraintMapping> = {
+  "23505": { status: 409, message: DUPLICATE_VALUE_MESSAGE }, // unique_violation (slug مكرر، كود كوبون…)
+  "23503": { status: 400, message: MISSING_RELATED_RECORD_MESSAGE }, // foreign_key_violation
+  "23502": { status: 400, message: MISSING_REQUIRED_FIELD_MESSAGE }, // not_null_violation
+  "23514": { status: 400, message: INVALID_FIELD_VALUE_MESSAGE }, // check_violation
+};
+
+/** احتياطي حين لا يصل رمز SQLSTATE (طبقة وسيطة قد تحذفه) — مطابقة على نص الخطأ. */
+const CONSTRAINT_MESSAGE_PATTERNS: Array<{ pattern: RegExp; mapping: ConstraintMapping }> = [
+  { pattern: /duplicate key value violates unique constraint/i, mapping: SQLSTATE_CONSTRAINTS["23505"] },
+  { pattern: /violates foreign key constraint/i, mapping: SQLSTATE_CONSTRAINTS["23503"] },
+  { pattern: /violates not-null constraint/i, mapping: SQLSTATE_CONSTRAINTS["23502"] },
+  { pattern: /violates check constraint/i, mapping: SQLSTATE_CONSTRAINTS["23514"] },
+];
+
+/**
+ * يحوّل أخطاء القيود في القاعدة (ورفض البريد المكرر لدى GoTrue) إلى 4xx
+ * برسالة عامة آمنة، ويسجّلها بتصنيفها الحقيقي. يُعيد null لبقية الأخطاء.
+ */
+function constraintErrorResponse(
+  route: string,
+  error: unknown,
+  context?: ApiErrorContext,
+): NextResponse<{ error: string }> | null {
+  if (!error || typeof error !== "object") return null;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  const codeText = typeof code === "string" ? code : "";
+  const messageText = typeof message === "string" ? message : "";
+
+  let mapping: ConstraintMapping | undefined = SQLSTATE_CONSTRAINTS[codeText];
+  if (!mapping && (codeText === "email_exists" || messageText === "User already registered")) {
+    mapping = { status: 409, message: EMAIL_ALREADY_TAKEN_MESSAGE };
+  }
+  if (!mapping) mapping = CONSTRAINT_MESSAGE_PATTERNS.find((entry) => entry.pattern.test(messageText))?.mapping;
+  if (!mapping) return null;
+
+  logApiError(route, error, mapping.status);
+  return apiErrorResponse(mapping.status, mapping.message, context);
+}
+
 /** Handles unexpected route failures using a sanitized message and route-only log. */
 export function unexpectedApiError(route: string, error: unknown, context?: ApiErrorContext): NextResponse<{ error: string }> {
   // SupabaseConfigurationError يُتعرف عليه عبر اسمه (استيراد الصنف نفسه يخلق دورة في الاختبارات المزوّقة).
@@ -79,6 +131,8 @@ export function unexpectedApiError(route: string, error: unknown, context?: ApiE
     logApiError(route, error, 503);
     return apiErrorResponse(503, CONFIGURATION_ERROR_MESSAGE, context);
   }
+  const constraint = constraintErrorResponse(route, error, context);
+  if (constraint) return constraint;
   logApiError(route, error, 500);
   return apiErrorResponse(500, undefined, context);
 }
