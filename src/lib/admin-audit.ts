@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logApiError } from "@/lib/api-error";
 
 export type AuditActor = { id: string; email: string };
 export type AuditContext = {
@@ -56,8 +57,8 @@ function redact(value: unknown): unknown {
 
 async function readSnapshot(db: SupabaseClient, table: string, filters: Array<[string, string | null]>): Promise<unknown> {
   if (filters.length === 0) return null;
-  const from = db.from as unknown as (tableName: string) => any;
-  let query = from(table).select("*");
+  // يجب استدعاء db.from عبر الكائن نفسه: النداء المنفصل يفقد this.rest ويرمي TypeError.
+  let query = db.from(table).select("*");
   for (const [key, value] of filters) query = value === null ? query.is(key, null) : query.eq(key, value);
   const { data, error } = await query.limit(30);
   if (error) throw new Error(`Could not read ${table} audit snapshot: ${error.message}`);
@@ -71,7 +72,14 @@ export async function captureAdminAuditContext(
 ): Promise<AuditContext | null> {
   const target = TARGETS[action]?.(payload);
   if (!target) return null;
-  return { ...target, before: await readSnapshot(db, target.table, target.filters) };
+  let before: unknown = null;
+  try {
+    before = await readSnapshot(db, target.table, target.filters);
+  } catch (error) {
+    // لقطة «قبل» اختيارية: فشل قراءتها لا يُفشل الإجراء، ويُبلَّغ عنه هنا فقط.
+    logApiError("/api/admin/action", error);
+  }
+  return { ...target, before };
 }
 
 export async function writeAdminAuditLog(

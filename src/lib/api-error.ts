@@ -24,6 +24,9 @@ export function classifyApiErrorStatus(status: number): ApiErrorClassification {
   return "request_error";
 }
 
+/** رسالة عامة آمنة عند غياب إعدادات Supabase على الخادم (مطابقة لنسخة صفحات الفشل). */
+const CONFIGURATION_ERROR_MESSAGE = "الخدمة غير مهيأة حالياً، حاول مرة أخرى لاحقاً.";
+
 const SAFE_API_MESSAGES = new Set([
   "صلاحيات غير كافية", "بيانات الإجراء غير صالحة", "بيانات غير صالحة", "Invalid request",
   "معرّف الكورس وحالة النشر مطلوبان", "أضف عنواناً ورابطاً صالحين قبل نشر الكورس",
@@ -39,6 +42,7 @@ const SAFE_API_MESSAGES = new Set([
   "الدفع غير متاح حالياً، حاول مرة أخرى لاحقاً.",
   "تعذّر حفظ التقدم، حاول مرة أخرى.",
   "بيانات التسجيل غير صالحة", "تعذّر إنشاء الحساب. تحقق من البيانات وحاول مجدداً.",
+  CONFIGURATION_ERROR_MESSAGE,
 ]);
 
 function isKnownPublicMessage(message: string): boolean {
@@ -70,6 +74,11 @@ export function logApiError(route: string, _error: unknown, status = 500): void 
 
 /** Handles unexpected route failures using a sanitized message and route-only log. */
 export function unexpectedApiError(route: string, error: unknown, context?: ApiErrorContext): NextResponse<{ error: string }> {
+  // SupabaseConfigurationError يُتعرف عليه عبر اسمه (استيراد الصنف نفسه يخلق دورة في الاختبارات المزوّقة).
+  if (error instanceof Error && error.name === "SupabaseConfigurationError") {
+    logApiError(route, error, 503);
+    return apiErrorResponse(503, CONFIGURATION_ERROR_MESSAGE, context);
+  }
   logApiError(route, error, 500);
   return apiErrorResponse(500, undefined, context);
 }

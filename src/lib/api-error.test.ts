@@ -36,4 +36,17 @@ describe("shared API error contract", () => {
       classification: "unexpected",
     });
   });
+
+  it("reports missing server configuration as a 503 with a safe localized message", async () => {
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    const configurationError = new Error("Supabase env missing");
+    configurationError.name = "SupabaseConfigurationError";
+
+    const response = unexpectedApiError("/api/admin/action", configurationError);
+
+    expect(response.status).toBe(503);
+    expect(classifyApiErrorStatus(response.status)).toBe("unavailable");
+    expect(await response.json()).toEqual({ error: "الخدمة غير مهيأة حالياً، حاول مرة أخرى لاحقاً." });
+    expect(logger).toHaveBeenCalledWith("[api-error]", { route: "/api/admin/action", classification: "unavailable" });
+  });
 });

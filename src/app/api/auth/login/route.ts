@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin, supabaseAdminAuth } from "@/lib/supabase";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
 import { apiErrorResponse, apiRoute, failedApiOperation } from "@/lib/api-error";
 import { setAuthSessionCookies } from "@/lib/auth-session";
@@ -24,8 +24,8 @@ async function postLogin(req: Request) {
     return apiErrorResponse(400, "البريد وكلمة المرور مطلوبان", "login");
   }
 
-  const admin = supabaseAdmin();
-  const { data, error } = await admin.auth.signInWithPassword({ email, password });
+  const authClient = supabaseAdminAuth();
+  const { data, error } = await authClient.auth.signInWithPassword({ email, password });
   if (error) {
     if (error.status === 400 || error.status === 401) return apiErrorResponse(401, "بيانات الدخول غير صحيحة", "login");
     return failedApiOperation("/api/auth/login", error, "login");
@@ -34,7 +34,7 @@ async function postLogin(req: Request) {
     return apiErrorResponse(401, "بيانات الدخول غير صحيحة", "login");
   }
 
-  const { data: profile, error: profileError } = await admin
+  const { data: profile, error: profileError } = await supabaseAdmin()
     .from("profiles")
     .select("role")
     .eq("id", data.user.id)

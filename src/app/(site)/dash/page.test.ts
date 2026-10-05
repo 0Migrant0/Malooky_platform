@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   auditError: null as { message: string } | null,
   throwAudit: false,
   failingTable: "" as string,
+  user: { id: "admin-1", email: "admin@example.test", role: "admin" } as { id: string; email: string; role: string } | null,
 }));
 
 vi.mock("next/navigation", () => ({ redirect: (path: string) => { throw new Error(`redirect:${path}`); } }));
@@ -43,7 +44,7 @@ vi.mock("@/lib/supabase", () => ({
       };
     },
   }),
-  getUserFromCookies: async () => ({ id: "admin-1", email: "admin@example.test", role: "admin" }),
+  getUserFromCookies: async () => mocks.user,
 }));
 vi.mock("@/components/LocalizedDashboard", () => ({ default: () => null }));
 vi.mock("@/components/LocalizedPageFailure", () => ({ default: (props: unknown) => props }));
@@ -55,6 +56,7 @@ describe("dashboard optional audit log query", () => {
     mocks.auditError = null;
     mocks.throwAudit = false;
     mocks.failingTable = "";
+    mocks.user = { id: "admin-1", email: "admin@example.test", role: "admin" };
   });
 
   it.each([
@@ -77,6 +79,18 @@ describe("dashboard optional audit log query", () => {
 
     expect(data.auditLogs).toEqual([]);
     expect(data.auditLogsReady).toBe(true);
+  });
+
+  it("sends an absent session through the refresh endpoint instead of dropping the admin at login", async () => {
+    mocks.user = null;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(DashPage()).rejects.toThrow("redirect:/api/auth/refresh?next=/dash");
+    } finally {
+      log.mockRestore();
+      mocks.user = { id: "admin-1", email: "admin@example.test", role: "admin" };
+    }
   });
 
   it("still shows the page failure when a required dashboard dataset fails", async () => {
